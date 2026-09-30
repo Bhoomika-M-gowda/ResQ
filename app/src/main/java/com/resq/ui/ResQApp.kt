@@ -73,6 +73,9 @@ fun ResQApp() {
     val rescueMode by viewModel.rescueMode.collectAsState()
     val selectedPacketId by viewModel.selectedPacketId.collectAsState()
     val wifiState by viewModel.wifiState.collectAsState()
+    val availablePeers by viewModel.availablePeers.collectAsState()
+    val selectedPeerIds by viewModel.selectedPeerIds.collectAsState()
+    val batchSendProgress by viewModel.batchSendProgress.collectAsState()
     val speechState by viewModel.speechState.collectAsState()
     val imageAnalysisState by viewModel.imageAnalysis.collectAsState()
     val analysisState by viewModel.analysis.collectAsState()
@@ -290,6 +293,9 @@ fun ResQApp() {
                         state = meshState,
                         packets = packets,
                         selectedPacketId = selectedPacketId,
+                        availablePeers = availablePeers,
+                        selectedPeerIds = selectedPeerIds,
+                        batchProgress = batchSendProgress,
                         onBack = { navController.popBackStack() },
                         onEnableBluetooth = {
                             enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
@@ -303,7 +309,10 @@ fun ResQApp() {
                         },
                         onScan = viewModel::scanForPeers,
                         onSelectPacket = viewModel::selectPacket,
-                        onSend = viewModel::sendSelectedPacket
+                        onSend = viewModel::sendSelectedPacket,
+                        onToggleSelectAll = viewModel::toggleSelectAllAvailable,
+                        onTogglePeer = viewModel::togglePeerSelection,
+                        onSendEmergency = viewModel::sendEmergencyToSelectedDevices
                     )
                 }
                 composable(Routes.RESCUE) {
@@ -321,11 +330,17 @@ fun ResQApp() {
                         state = wifiState,
                         packets = packets,
                         selectedPacketId = selectedPacketId,
+                        availablePeers = availablePeers,
+                        selectedPeerIds = selectedPeerIds,
+                        batchProgress = batchSendProgress,
                         onBack = { navController.popBackStack() },
                         onHost = viewModel::startWifiHost,
                         onDiscover = viewModel::discoverWifiPeers,
                         onSelectPacket = viewModel::selectPacket,
-                        onSend = viewModel::sendSelectedPacketWifi
+                        onSend = viewModel::sendSelectedPacketWifi,
+                        onToggleSelectAll = viewModel::toggleSelectAllAvailable,
+                        onTogglePeer = viewModel::togglePeerSelection,
+                        onSendEmergency = viewModel::sendEmergencyToSelectedDevices
                     )
                 }
                 composable(Routes.DECISION) {

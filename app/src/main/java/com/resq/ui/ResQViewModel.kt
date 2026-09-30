@@ -110,6 +110,171 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
 
     fun hasLocationPermission() = locationProvider.hasPermission()
 
+    val availablePeers: StateFlow<List<AvailablePeer>> = combine(meshState, wifiState) { bt, wf ->
+        val btList = bt.peers.map { peer ->
+            AvailablePeer(
+                id = "BT:${peer.address}",
+                name = peer.name,
+                address = peer.address,
+                connectionType = PeerConnectionType.BLUETOOTH,
+                isAvailable = bt.enabled && peer.paired,
+                statusText = if (!bt.enabled) "Bluetooth Off" else if (peer.paired) "Available" else "Not paired",
+                rawBluetoothPeer = peer
+            )
+        }
+        val wfList = wf.peers.map { peer ->
+            AvailablePeer(
+                id = "WIFI:${peer.address}",
+                name = peer.name,
+                address = peer.address,
+                connectionType = PeerConnectionType.WIFI_DIRECT,
+                isAvailable = wf.enabled || wf.connected,
+                statusText = "Available",
+                rawWifiPeer = peer
+            )
+        }
+        (btList + wfList).sortedWith(compareByDescending<AvailablePeer> { it.isAvailable }.thenBy { it.name.lowercase() })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _selectedPeerIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedPeerIds: StateFlow<Set<String>> = _selectedPeerIds.asStateFlow()
+
+    private val _batchSendProgress = MutableStateFlow(BatchSendProgressState())
+    val batchSendProgress: StateFlow<BatchSendProgressState> = _batchSendProgress.asStateFlow()
+
+    private val sentPacketPeerHistory = mutableSetOf<Pair<String, String>>()
+
+    fun togglePeerSelection(peerId: String) {
+        _selectedPeerIds.update { set ->
+            if (peerId in set) set - peerId else set + peerId
+        }
+    }
+
+    fun toggleSelectAllAvailable() {
+        val available = availablePeers.value.filter { it.isAvailable }
+        if (available.isEmpty()) return
+        val allSelected = available.all { it.id in _selectedPeerIds.value }
+        if (allSelected) {
+            _selectedPeerIds.value = emptySet()
+        } else {
+            _selectedPeerIds.value = available.map { it.id }.toSet()
+        }
+    }
+
+    fun sendEmergencyToSelectedDevices() {
+        val selectedPacket = packets.value.firstOrNull { it.messageId == _selectedPacketId.value }
+            ?: packets.value.firstOrNull()
+
+        if (selectedPacket == null) {
+            _events.tryEmit(PacketEvent(false, "Create an SOS or report first"))
+            return
+        }
+
+        val selectedPeersList = availablePeers.value.filter { it.id in _selectedPeerIds.value && it.isAvailable }
+        if (selectedPeersList.isEmpty()) {
+            _events.tryEmit(PacketEvent(false, "Select at least one available device to send"))
+            return
+        }
+
+        viewModelScope.launch {
+            val totalCount = selectedPeersList.size
+            val initialProgressList = selectedPeersList.mapIndexed { index, peer ->
+                PeerSendProgress(
+                    peerId = peer.id,
+                    peerName = peer.name,
+                    connectionType = peer.connectionType,
+                    index = index + 1,
+                    total = totalCount,
+                    status = PeerSendStatus.PENDING
+                )
+            }
+
+            _batchSendProgress.value = BatchSendProgressState(
+                isSending = true,
+                totalSelected = totalCount,
+                currentSendingIndex = 0,
+                peerProgressList = initialProgressList
+            )
+
+            var successfulSends = 0
+
+            for ((index, peer) in selectedPeersList.withIndex()) {
+                _batchSendProgress.update { current ->
+                    val updatedList = current.peerProgressList.mapIndexed { i, p ->
+                        if (i == index) p.copy(status = PeerSendStatus.SENDING) else p
+                    }
+                    current.copy(currentSendingIndex = index + 1, peerProgressList = updatedList)
+                }
+
+                val historyKey = selectedPacket.messageId to peer.address
+                if (sentPacketPeerHistory.contains(historyKey)) {
+                    _batchSendProgress.update { current ->
+                        val updatedList = current.peerProgressList.mapIndexed { i, p ->
+                            if (i == index) p.copy(status = PeerSendStatus.SKIPPED_DUPLICATE, message = "Already sent to this device") else p
+                        }
+                        current.copy(peerProgressList = updatedList)
+                    }
+                    continue
+                }
+
+                val decision = currentDecision()
+
+                val sendResult: Result<Boolean> = when (peer.connectionType) {
+                    PeerConnectionType.BLUETOOTH -> {
+                        if (peer.rawBluetoothPeer != null && decision.method != CommunicationMethod.STORE_RETRY) {
+                            bluetooth.sendPacketToPeer(selectedPacket, peer.rawBluetoothPeer).map { true }
+                        } else if (decision.method == CommunicationMethod.STORE_RETRY) {
+                            Result.failure(IllegalStateException("Decision engine recommends store-and-retry"))
+                        } else {
+                            bluetooth.sendPacketToPeer(selectedPacket, peer.rawBluetoothPeer!!).map { true }
+                        }
+                    }
+                    PeerConnectionType.WIFI_DIRECT -> {
+                        if (peer.rawWifiPeer != null && decision.method != CommunicationMethod.STORE_RETRY) {
+                            wifi.connectAndSendSuspend(peer.rawWifiPeer, selectedPacket)
+                        } else if (decision.method == CommunicationMethod.STORE_RETRY) {
+                            Result.failure(IllegalStateException("Decision engine recommends store-and-retry"))
+                        } else {
+                            wifi.connectAndSendSuspend(peer.rawWifiPeer!!, selectedPacket)
+                        }
+                    }
+                }
+
+                sendResult.fold(
+                    onSuccess = {
+                        successfulSends++
+                        sentPacketPeerHistory.add(historyKey)
+                        _batchSendProgress.update { current ->
+                            val updatedList = current.peerProgressList.mapIndexed { i, p ->
+                                if (i == index) p.copy(status = PeerSendStatus.SUCCESS, message = "Sent ✓") else p
+                            }
+                            current.copy(peerProgressList = updatedList)
+                        }
+                    },
+                    onFailure = { error ->
+                        _batchSendProgress.update { current ->
+                            val updatedList = current.peerProgressList.mapIndexed { i, p ->
+                                if (i == index) p.copy(status = PeerSendStatus.FAILED, message = error.message ?: "Send failed") else p
+                            }
+                            current.copy(peerProgressList = updatedList)
+                        }
+                    }
+                )
+            }
+
+            val finalMessage = if (successfulSends > 0) {
+                "Emergency packet sent to $successfulSends available relay devices"
+            } else {
+                "Packet kept in store-and-forward mechanism"
+            }
+
+            _batchSendProgress.update { current ->
+                current.copy(isSending = false, finalSummaryMessage = finalMessage)
+            }
+            _events.emit(PacketEvent(successfulSends > 0, finalMessage))
+        }
+    }
+
     fun refreshBluetooth() = bluetooth.refresh()
     fun startBluetoothServer() = bluetooth.startServer()
     fun scanForPeers() = bluetooth.startDiscovery()

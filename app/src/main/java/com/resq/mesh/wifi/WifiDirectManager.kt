@@ -106,6 +106,47 @@ class WifiDirectManager(
     }
 
     @SuppressLint("MissingPermission")
+    private var activeTransferDeferred: CompletableDeferred<Result<Boolean>>? = null
+
+    @SuppressLint("MissingPermission")
+    suspend fun connectAndSendSuspend(peer: WifiPeer, packet: EmergencyPacket): Result<Boolean> = withContext(Dispatchers.IO) {
+        val p2p = manager ?: return@withContext Result.failure(IllegalStateException("Wi-Fi Direct not available"))
+        val ch = channel ?: return@withContext Result.failure(IllegalStateException("Wi-Fi Direct channel not initialized"))
+
+        val deferred = CompletableDeferred<Result<Boolean>>()
+        activeTransferDeferred = deferred
+        pendingTransfer = peer to packet
+
+        val config = WifiP2pConfig().apply {
+            deviceAddress = peer.address
+            wps.setup = WpsInfo.PBC
+        }
+        _state.value = _state.value.copy(status = "Connecting to ${peer.name}…", error = null)
+        p2p.connect(ch, config, action(
+            success = { _state.value = _state.value.copy(status = "Wi-Fi Direct negotiation started") },
+            failure = { reason ->
+                pendingTransfer = null
+                _state.value = _state.value.copy(error = "Connection failed: reason $reason", status = "Packet remains stored")
+                deferred.complete(Result.failure(IllegalStateException("Connection failed: reason $reason")))
+            }
+        ))
+
+        val timeoutJob = launch {
+            delay(25_000L)
+            if (!deferred.isCompleted) {
+                deferred.complete(Result.failure(java.util.concurrent.TimeoutException("Wi-Fi Direct connection timed out")))
+            }
+        }
+
+        try {
+            deferred.await()
+        } finally {
+            timeoutJob.cancel()
+            activeTransferDeferred = null
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     fun connectAndSend(peer: WifiPeer, packet: EmergencyPacket) {
         val p2p = manager ?: return
         val ch = channel ?: return
@@ -189,10 +230,12 @@ class WifiDirectManager(
                 emergencyRepository.markTransferred(packet.messageId, outbound.hopCount, ack.finalDelivery)
                 supportDao.insertForwardingLog(ForwardingLog(messageId = packet.messageId, fromDevice = localDeviceId, toDevice = ack.receiverId, method = "WIFI_LOCAL", timestamp = now, result = if (ack.finalDelivery) "ACK_DELIVERED" else "ACK_FORWARDED"))
                 _state.value = _state.value.copy(status = if (ack.finalDelivery) "${packet.messageId} delivered to Rescue by Wi-Fi" else "${packet.messageId} acknowledged by ${peer.name}", error = null)
+                activeTransferDeferred?.complete(Result.success(true))
             },
             onFailure = { error ->
                 supportDao.insertForwardingLog(ForwardingLog(messageId = packet.messageId, fromDevice = localDeviceId, toDevice = peer.address, method = "WIFI_LOCAL", timestamp = now, result = "FAILED"))
                 _state.value = _state.value.copy(error = error.message ?: "Wi-Fi transfer failed", status = "Packet remains stored")
+                activeTransferDeferred?.complete(Result.failure(error))
             }
         )
     }

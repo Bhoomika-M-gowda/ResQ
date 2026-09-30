@@ -1,10 +1,9 @@
 package com.resq.ui.wifi
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -12,9 +11,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.resq.data.model.AvailablePeer
+import com.resq.data.model.BatchSendProgressState
 import com.resq.data.model.EmergencyPacket
 import com.resq.mesh.wifi.WifiMeshState
 import com.resq.mesh.wifi.WifiPeer
+import com.resq.ui.components.NearbyDevicesSection
 import com.resq.ui.components.ResQCard
 import com.resq.ui.components.ResQHeader
 import com.resq.ui.theme.ResQDimens
@@ -25,14 +27,25 @@ fun WifiDirectScreen(
     state: WifiMeshState,
     packets: List<EmergencyPacket>,
     selectedPacketId: String?,
+    availablePeers: List<AvailablePeer>,
+    selectedPeerIds: Set<String>,
+    batchProgress: BatchSendProgressState,
     onBack: () -> Unit,
     onHost: () -> Unit,
     onDiscover: () -> Unit,
     onSelectPacket: (String) -> Unit,
-    onSend: (WifiPeer) -> Unit
+    onSend: (WifiPeer) -> Unit,
+    onToggleSelectAll: () -> Unit,
+    onTogglePeer: (String) -> Unit,
+    onSendEmergency: () -> Unit
 ) {
     val selected = packets.firstOrNull { it.messageId == selectedPacketId } ?: packets.firstOrNull()
-    Column(Modifier.fillMaxSize().padding(horizontal = ResQDimens.page)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = ResQDimens.page)
+    ) {
         ResQHeader("Wi-Fi Local Peer", onBack)
         ResQCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -68,22 +81,15 @@ fun WifiDirectScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Text("Wi-Fi Direct peers", fontWeight = FontWeight.ExtraBold)
-        if (state.peers.isEmpty()) Text("No peer found. On the receiver tap Host / Receive, then discover again.")
-        else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 18.dp)) {
-            items(state.peers, key = { it.address }) { peer ->
-                ResQCard(Modifier.fillMaxWidth()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PhoneAndroid, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(peer.name, fontWeight = FontWeight.ExtraBold)
-                            Text(peer.address, style = MaterialTheme.typography.bodySmall)
-                        }
-                        Button(onClick = { onSend(peer) }, enabled = selected != null) { Text("SEND") }
-                    }
-                }
-            }
-        }
+        NearbyDevicesSection(
+            availablePeers = availablePeers,
+            selectedPeerIds = selectedPeerIds,
+            batchProgress = batchProgress,
+            onToggleSelectAll = onToggleSelectAll,
+            onTogglePeer = onTogglePeer,
+            onSendEmergency = onSendEmergency,
+            hasPacketSelected = selected != null
+        )
+        Spacer(Modifier.height(24.dp))
     }
 }

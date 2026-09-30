@@ -1,20 +1,22 @@
 package com.resq.ui.mesh
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.resq.data.model.AvailablePeer
+import com.resq.data.model.BatchSendProgressState
 import com.resq.data.model.EmergencyPacket
 import com.resq.mesh.bluetooth.MeshUiState
 import com.resq.mesh.bluetooth.PeerDevice
+import com.resq.ui.components.NearbyDevicesSection
 import com.resq.ui.components.ResQCard
 import com.resq.ui.components.ResQHeader
 import com.resq.ui.theme.ResQDimens
@@ -25,15 +27,26 @@ fun MeshScreen(
     state: MeshUiState,
     packets: List<EmergencyPacket>,
     selectedPacketId: String?,
+    availablePeers: List<AvailablePeer>,
+    selectedPeerIds: Set<String>,
+    batchProgress: BatchSendProgressState,
     onBack: () -> Unit,
     onEnableBluetooth: () -> Unit,
     onMakeDiscoverable: () -> Unit,
     onScan: () -> Unit,
     onSelectPacket: (String) -> Unit,
-    onSend: (PeerDevice) -> Unit
+    onSend: (PeerDevice) -> Unit,
+    onToggleSelectAll: () -> Unit,
+    onTogglePeer: (String) -> Unit,
+    onSendEmergency: () -> Unit
 ) {
     val selectedPacket = packets.firstOrNull { it.messageId == selectedPacketId } ?: packets.firstOrNull()
-    Column(Modifier.fillMaxSize().padding(horizontal = ResQDimens.page)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = ResQDimens.page)
+    ) {
         ResQHeader("Bluetooth Mesh", onBack)
         ResQCard(Modifier.fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -86,30 +99,15 @@ fun MeshScreen(
             }
         }
         Spacer(Modifier.height(14.dp))
-        Text("Nearby / paired phones", fontWeight = FontWeight.ExtraBold)
-        Spacer(Modifier.height(8.dp))
-        if (state.peers.isEmpty()) {
-            Text("No phones found. Pair Phone A and Phone B in Android Bluetooth settings, then scan again.")
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
-                items(state.peers, key = { it.address }) { peer ->
-                    ResQCard(Modifier.fillMaxWidth()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PhoneAndroid, null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(peer.name, fontWeight = FontWeight.ExtraBold)
-                                Text(peer.address, style = MaterialTheme.typography.bodySmall)
-                                Text(if (peer.paired) "Paired" else "Not paired", style = MaterialTheme.typography.labelSmall)
-                            }
-                            Button(
-                                onClick = { onSend(peer) },
-                                enabled = peer.paired && selectedPacket != null
-                            ) { Text("SEND") }
-                        }
-                    }
-                }
-            }
-        }
+        NearbyDevicesSection(
+            availablePeers = availablePeers,
+            selectedPeerIds = selectedPeerIds,
+            batchProgress = batchProgress,
+            onToggleSelectAll = onToggleSelectAll,
+            onTogglePeer = onTogglePeer,
+            onSendEmergency = onSendEmergency,
+            hasPacketSelected = selectedPacket != null
+        )
+        Spacer(Modifier.height(24.dp))
     }
 }

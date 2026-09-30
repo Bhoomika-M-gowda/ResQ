@@ -127,67 +127,72 @@ class BluetoothMeshManager(
     }
 
     @SuppressLint("MissingPermission")
-    fun send(packet: EmergencyPacket, peer: PeerDevice) {
-        val bluetooth = adapter ?: return
-        scope.launch {
-            _state.value = _state.value.copy(status = "Sending ${packet.messageId} to ${peer.name}…", error = null)
-            bluetooth.cancelDiscovery()
-            val now = System.currentTimeMillis()
-            val outbound = packet.copy(
-                hopCount = packet.hopCount + 1,
-                status = com.resq.data.model.PacketStatus.FORWARDED,
-                lastForwardedAt = now
-            )
-            val result = runCatching {
-                val device = bluetooth.getRemoteDevice(peer.address)
-                device.createRfcommSocketToServiceRecord(SERVICE_UUID).use { socket ->
-                    socket.connect()
-                    val writer = socket.outputStream.bufferedWriter()
-                    writer.write(MeshProtocol.encodePacket(outbound, localDeviceId))
-                    writer.newLine()
-                    writer.flush()
-                    val timeoutJob = launch {
-                        delay(ACK_TIMEOUT_MS)
-                        runCatching { socket.close() }
-                    }
-                    val ackLine = try {
-                        socket.inputStream.bufferedReader().readLine()
-                            ?: error("Receiver closed without acknowledgement")
-                    } finally {
-                        timeoutJob.cancel()
-                    }
-                    val ack = MeshProtocol.decodeAck(ackLine).getOrThrow()
-                    require(ack.messageId == packet.messageId) { "Acknowledgement ID mismatch" }
-                    require(ack.accepted) { ack.reason ?: "Receiver rejected packet" }
-                    ack
+    suspend fun sendPacketToPeer(packet: EmergencyPacket, peer: PeerDevice): Result<MeshAck> = withContext(Dispatchers.IO) {
+        val bluetooth = adapter ?: return@withContext Result.failure(IllegalStateException("Bluetooth not available"))
+        _state.value = _state.value.copy(status = "Sending ${packet.messageId} to ${peer.name}…", error = null)
+        runCatching { bluetooth.cancelDiscovery() }
+        val now = System.currentTimeMillis()
+        val outbound = packet.copy(
+            hopCount = packet.hopCount + 1,
+            status = com.resq.data.model.PacketStatus.FORWARDED,
+            lastForwardedAt = now
+        )
+        val result = runCatching {
+            val device = bluetooth.getRemoteDevice(peer.address)
+            device.createRfcommSocketToServiceRecord(SERVICE_UUID).use { socket ->
+                socket.connect()
+                val writer = socket.outputStream.bufferedWriter()
+                writer.write(MeshProtocol.encodePacket(outbound, localDeviceId))
+                writer.newLine()
+                writer.flush()
+                val timeoutJob = launch {
+                    delay(ACK_TIMEOUT_MS)
+                    runCatching { socket.close() }
                 }
+                val ackLine = try {
+                    socket.inputStream.bufferedReader().readLine()
+                        ?: error("Receiver closed without acknowledgement")
+                } finally {
+                    timeoutJob.cancel()
+                }
+                val ack = MeshProtocol.decodeAck(ackLine).getOrThrow()
+                require(ack.messageId == packet.messageId) { "Acknowledgement ID mismatch" }
+                require(ack.accepted) { ack.reason ?: "Receiver rejected packet" }
+                ack
             }
-            result.fold(
-                onSuccess = { ack ->
-                    emergencyRepository.markTransferred(packet.messageId, outbound.hopCount, ack.finalDelivery)
-                    supportDao.insertForwardingLog(
-                        ForwardingLog(
-                            messageId = packet.messageId,
-                            fromDevice = localDeviceId,
-                            toDevice = ack.receiverId,
-                            method = "BLUETOOTH",
-                            timestamp = now,
-                            result = if (ack.finalDelivery) "ACK_DELIVERED" else "ACK_FORWARDED"
-                        )
-                    )
-                    _state.value = _state.value.copy(
-                        status = if (ack.finalDelivery) "${packet.messageId} delivered to Rescue" else "${packet.messageId} acknowledged by ${peer.name}",
-                        error = null
-                    )
-                },
-                onFailure = { error ->
-                    supportDao.insertForwardingLog(
-                        ForwardingLog(messageId = packet.messageId, fromDevice = localDeviceId, toDevice = peer.address, method = "BLUETOOTH", timestamp = now, result = "FAILED")
-                    )
-                    _state.value = _state.value.copy(error = error.message ?: "Bluetooth send failed", status = "Packet remains stored")
-                }
-            )
         }
+        result.fold(
+            onSuccess = { ack ->
+                emergencyRepository.markTransferred(packet.messageId, outbound.hopCount, ack.finalDelivery)
+                supportDao.insertForwardingLog(
+                    ForwardingLog(
+                        messageId = packet.messageId,
+                        fromDevice = localDeviceId,
+                        toDevice = ack.receiverId,
+                        method = "BLUETOOTH",
+                        timestamp = now,
+                        result = if (ack.finalDelivery) "ACK_DELIVERED" else "ACK_FORWARDED"
+                    )
+                )
+                _state.value = _state.value.copy(
+                    status = if (ack.finalDelivery) "${packet.messageId} delivered to Rescue" else "${packet.messageId} acknowledged by ${peer.name}",
+                    error = null
+                )
+                Result.success(ack)
+            },
+            onFailure = { error ->
+                supportDao.insertForwardingLog(
+                    ForwardingLog(messageId = packet.messageId, fromDevice = localDeviceId, toDevice = peer.address, method = "BLUETOOTH", timestamp = now, result = "FAILED")
+                )
+                _state.value = _state.value.copy(error = error.message ?: "Bluetooth send failed", status = "Packet remains stored")
+                Result.failure(error)
+            }
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    fun send(packet: EmergencyPacket, peer: PeerDevice) {
+        scope.launch { sendPacketToPeer(packet, peer) }
     }
 
     @SuppressLint("MissingPermission")
