@@ -1,249 +1,394 @@
-# ResQ Android 0.8.1 — Live Rescue Intelligence
+ResQ — Live Rescue Intelligence
 
-## What is new in 0.8.1
+ResQ is an offline-first Android emergency-response application designed to support emergency reporting, local classification, GPS-based rescue assistance, offline maps, and device-to-device emergency communication when internet connectivity is unavailable or unreliable.
 
-- Large blue person/device marker labelled `YOU • This device`
-- Device marker is added after other markers so it remains visually prominent
-- Map automatically centres on the first available GPS fix at street-level zoom
-- My Location button remains available to recenter after panning
-- Rescue legend now identifies the device marker
+Platform: Android
+Version: 0.8.1
+Status: Hackathon / Development Build
 
-Version 0.8.0 extends the working ResQ application with battery-aware live location, nearest offline rescue-service search, distance calculation, an honest offline directional-path fallback, and on-device emergency-photo understanding. Bluetooth, Wi-Fi Direct, Room, the existing classifier, Rescue Mode, and the PMTiles map architecture are preserved.
+1. Context & Overview
 
-## What is new in 0.8.0
+Problem
 
-- Live Fused Location updates while the Map screen is open (15-second interval and 10-metre movement threshold)
-- Fresh high-accuracy location request before an emergency packet is saved
-- Last-known-location fallback with a visible stale-location indication
-- Find Nearby categories for hospitals/clinics, fire, police, pharmacies, fuel/water, and shelters
-- Haversine distance calculation from the current GPS position
-- Facility selection, exact coordinates, and an offline straight-line directional path
-- Explicit warning that the path is not turn-by-turn road navigation
-- Camera and gallery emergency-photo input
-- System camera contract, so ResQ does not request unnecessary direct camera access
-- Bundled ML Kit image labeling that remains available offline
-- Conservative generated descriptions that distinguish visible evidence from user-provided context
-- Mandatory user review/edit/use step before the description enters `EmergencyClassifier`
-- Local photo storage associated with the reporting device's Room packet record
-- Room migration 1 → 2 that preserves existing emergency packets
+During emergencies, internet connectivity may be unavailable or unreliable. ResQ keeps essential reporting and rescue-support features available locally.
 
-## Image-analysis limitation
+Core Features
 
-The bundled general-purpose ML Kit model labels visible objects and scenes; it is not a specialized disaster-severity model. ResQ creates conservative text from confident labels and asks the user to verify or edit it. It never automatically invents injuries, victim counts, causes, exact locations, priority, or a claim that the user is trapped. If analysis fails, the photo remains local and typed reporting continues normally.
+Emergency reporting using text, speech, and photos
 
-## Offline route limitation
+Local emergency classification and priority detection
 
-PMTiles contains display tiles, not a routable road graph. ResQ therefore shows the user, destination, distance, and a straight directional line. It does not claim to provide turn-by-turn navigation. Full offline road routing would require a separate routing graph/engine in a later version.
+GPS-based live location
 
-The map now displays color-coded hospitals and clinics, fire stations, police stations, emergency supplies, and shelters/support points. Rescue POIs work offline, can be tapped for their name/category/coordinates, and the location button centres the map on the phone's current position. Most POIs appear only after zooming to street/city level.
+Offline MapLibre + PMTiles maps
 
-An older zoom-14 archive can show hospitals, but detailed services such as fire and police stations may not be stored in it. Generate a zoom-15 archive for the full rescue layer.
+Nearby hospitals, clinics, fire stations, police stations, pharmacies, fuel/water points, and shelters
 
-## What was added in 7.2
+Offline distance calculation and directional path
 
-- Offline rescue-service POI layers with a clear color legend
-- Tap-to-inspect rescue place details
-- GPS-centred street-level map view
-- Existing imported map remains usable; zoom 15 is recommended for complete POI coverage
+On-device ML Kit image labeling
 
-## What was added in 7.1
+Local Room database for emergency packets and support data
 
-- Real pan-and-zoom vector map rendered with MapLibre Android 13.6.1
-- Local `karnataka.pmtiles` import with a strict 1 GB maximum
-- Map file stored in ResQ's app-specific storage and available without internet
-- Roads, water, land use, buildings and administrative boundaries
-- All Room-backed ResQ SOS/medical/hazard/safe/rescue markers over the real map
-- No API key and no Google Maps billing account
-- Original schematic map remains available before import
+Bluetooth-based emergency packet forwarding
 
-## Create `karnataka.pmtiles` on Windows
+Rescue Mode and emergency map markers
 
-1. Download the Windows `pmtiles.exe` CLI from the official Protomaps/go-pmtiles GitHub Releases page.
-2. Visit `https://maps.protomaps.com/builds` and copy the URL of a recent Version 4 daily `.pmtiles` build.
-3. In the folder containing `pmtiles.exe`, open PowerShell and run:
+Typed-text fallback when speech recognition is unavailable
 
-```powershell
+Current Highlights
+
+YOU • This device location marker
+
+Automatic map centering on the first GPS fix
+
+Nearby rescue-service search
+
+Offline emergency-photo analysis
+
+User review before photo-generated descriptions are used
+
+Offline emergency classification without cloud AI
+
+2. Badges & Demo
+
+CI, test-coverage, and code-quality badges can be added after the corresponding workflows are configured.
+
+Demo Screenshots / Video
+
+Add screenshots or a demo video showing:
+
+Emergency reporting
+
+AI analysis
+
+Offline map
+
+Nearby rescue services
+
+Emergency photo analysis
+
+Emergency packet forwarding
+
+3. Architecture & System Design
+
+High-Level Architecture
+
+                ┌──────────────────┐
+                │    ResQ Android  │
+                └────────┬─────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        ▼                ▼                ▼
+Emergency Input    GPS & Map       Local Storage
+Text/Speech/Photo  MapLibre/PMTiles    Room
+│                │                │
+▼                ▼                │
+Emergency Classifier    │                │
+Type + Priority         │                │
+│                │                │
+└────────┬───────┴────────────────┘
+▼
+Emergency Packet
+│
+┌──────┴──────┐
+▼             ▼
+Bluetooth      Rescue Mode
+Forwarding
+
+Emergency Flow
+
+Text / Speech / Photo
+↓
+Input Processing
+↓
+Local Classification
+↓
+User Review
+↓
+GPS + Timestamp
+↓
+Emergency Packet
+↓
+Room Storage
+↓
+Bluetooth / Rescue Mode
+
+Main Technologies
+
+Technology
+
+Purpose
+
+Kotlin
+
+Android development
+
+MapLibre Android 13.6.1
+
+Offline vector maps
+
+PMTiles
+
+Offline map data
+
+Room
+
+Local persistence
+
+Fused Location
+
+GPS tracking
+
+ML Kit
+
+On-device image labeling
+
+Android Speech Recognition
+
+Voice input
+
+Bluetooth
+
+Emergency packet forwarding
+
+4. Installation & Configuration
+
+Prerequisites
+
+Android Studio
+
+JVM 21
+
+Android device(s) for testing
+
+Location/GPS permission
+
+Microphone permission for speech input
+
+PMTiles archive for the complete offline-map experience
+
+The existing project documentation does not specify exact Android Studio, Gradle, SDK, or hardware versions.
+
+Installation
+
+Open the resq-android project in Android Studio.
+
+Configure JVM 21.
+
+Sync Gradle.
+
+Build and install the application on the test device.
+
+Offline Karnataka Map
+
+Download pmtiles.exe and a suitable Version 4 daily PMTiles build.
+
 .\pmtiles.exe extract "PASTE_DAILY_BUILD_URL_HERE" karnataka.pmtiles --bbox=74.05,11.50,78.60,18.80 --maxzoom=15
-```
 
-The bounding box covers Karnataka with a small safety margin. Zoom 15 is required for detailed fire, police, clinic, shelter, and supply POIs. If the result exceeds the app's 1 GB limit, keep the existing zoom-14 file for hospitals and major places, or make a smaller district/city archive at zoom 15. Each additional zoom level can substantially increase archive size.
+Verify:
 
-4. Verify the archive:
-
-```powershell
 .\pmtiles.exe verify karnataka.pmtiles
-```
 
-5. Copy `karnataka.pmtiles` to the phone with USB, Google Drive, or another file-transfer method.
-6. In ResQ open **Map** > **Import Karnataka Map**, select the file and wait for 100%.
-7. Turn off Wi-Fi/mobile data and reopen Map to prove it is offline.
+Then:
 
-The PMTiles basemap is distributed under the ODbL Produced Work terms and requires OpenStreetMap attribution. ResQ displays attribution under the map.
+Map → Import Karnataka Map
 
-## Milestone 7 added
+For complete rescue-service POI coverage, zoom 15 is recommended. The application has a documented 1 GB map-file limit.
 
-- Fully offline, code-rendered map with no map API or internet dependency
-- Persisted Room markers for SOS, hazard, safe zone, medical, and rescue locations
-- Emergency packets automatically become tappable map markers
-- Marker category filters and saved detail cards
-- Current GPS location used as the local map center
-- Built-in demonstration markers saved near the current location
-- Deterministic coordinate projection unit tests
+Environment Variables
 
-## Milestone 6 retained
+No .env variables are documented in the existing project README.
 
-- Deterministic local emergency text classification
-- FLOOD, FIRE, MEDICAL, BLOCKED ROAD, DAMAGED BRIDGE, SOS, and manual OTHER fallback
-- CRITICAL, URGENT, and NORMAL prioritization
-- Visible five-stage AI analysis screen
-- Actual classifier explanation and matched keywords
-- Android on-device speech recognition on supported Android 12+ devices
-- Offline-preferred system recognition fallback
-- Typed text always remains available
-- Unit tests for the required flood/trapped demo sentence and fallback rules
+5. Developer Experience & Quality Control
 
-No cloud AI call is made by the classifier. No model is trained. The rule set is deliberately transparent and dependable for the hackathon demo.
+Important Source Paths
 
-## Install
+app/src/main/java/com/resq/
+├── ai/classifier/EmergencyClassifier.kt
+├── ai/speech/SpeechInputManager.kt
+├── ui/ai/AiAnalysisScreen.kt
+├── ui/report/ReportScreen.kt
+├── ui/ResQViewModel.kt
+├── map/OfflineMapProjector.kt
+├── ui/map/OfflineMapScreen.kt
+├── data/model/SupportEntities.kt
+└── data/db/SupportDao.kt
 
-1. Extract `ResQ_0_8_0_Live_Rescue_Android.zip`.
-2. Open its inner `resq-android` folder in Android Studio.
-3. Use JVM 21 and sync Gradle.
-4. Install the same build on the test phones.
-5. Preserve Milestone 4 as the stable Bluetooth baseline and Milestone 5 as the Wi-Fi/decision baseline.
+app/src/test/java/com/resq/
+├── ai/classifier/EmergencyClassifierTest.kt
+└── map/OfflineMapProjectorTest.kt
 
-Do not uninstall the existing ResQ application. Version code 10 upgrades versions 7.1/7.2 and Room migration 1 → 2 keeps the stored data. The already imported PMTiles file remains in app storage when the upgrade is signed with the same Android Studio debug key.
+Example Emergency Classification
 
-## Version 0.8.0 verification
+Input:
 
-### Live location
+There are people trapped near the flooded road.
 
-1. Grant location permission and enable GPS.
-2. Open **Map** and confirm the legend shows **GPS: live**.
-3. Move outdoors and confirm the user marker updates without repeatedly tapping the button.
-4. Leave Map and confirm live tracking stops.
-5. Create a report and confirm its packet coordinates use the latest fix.
+Expected:
 
-### Nearby services and path
-
-1. Import the zoom-15 Karnataka PMTiles archive.
-2. Open **Map** and tap **Find Nearby**.
-3. Choose Hospital / Clinic, Fire Station, Police Station, Pharmacy, Fuel / Water, or Shelter / Support.
-4. Confirm up to five visible nearby facilities are sorted by straight-line distance.
-5. Select one and tap **Show offline path**.
-6. Confirm the user marker, destination marker, distance, and red directional line appear.
-7. Confirm the straight-line limitation is displayed.
-
-### Emergency photo
-
-1. Open **Report Emergency**.
-2. Tap **Take Photo** or **Choose Image**.
-3. Wait for on-device analysis.
-4. Review the detected labels and suggested description.
-5. Tap **Edit** if needed, then **Use Description**.
-6. Confirm the text appears in the normal description field.
-7. Tap **Analyze Emergency** and confirm the existing five-stage classifier runs.
-8. Create the packet and confirm Messages shows **Photo saved locally on reporting device**.
-
-### Offline regression
-
-1. Disable mobile data and Wi-Fi.
-2. Repeat map, photo, text-classification, Room storage, Bluetooth forwarding, and Rescue Mode tests.
-3. Confirm failure of photo analysis never prevents a manually typed emergency report.
-
-## Required Milestone 7 demo test
-
-1. Open **Map** from Home or the bottom navigation.
-2. Tap the location button and grant location permission.
-3. Tap the add-marker button once.
-4. Confirm Safe Zone, Medical Point, Flooded Road, and Rescue Point appear.
-5. Tap each marker and verify its details, coordinates, source, and saved time.
-6. Turn off internet and reopen the app; confirm the markers remain available.
-7. Create an SOS or analyzed emergency packet and return to Map.
-8. Confirm the new emergency appears as an SOS/medical marker.
-
-## Milestone 6 regression test
-
-1. Enable GPS and open **Report Emergency**.
-2. Select Flood (this remains the manual fallback).
-3. Tap **Speak** and grant microphone permission.
-4. Say: `There are people trapped near the flooded road.`
-5. Confirm the transcript appears in the text box.
-6. Tap **Analyze Emergency**.
-7. Watch all five stages complete.
-8. Confirm the result is:
-
-```text
 Type: FLOOD
 Priority: CRITICAL
-```
 
-9. Tap **Create Emergency Packet**.
-10. Open Messages and confirm the stored packet contains the transcript, GPS, timestamp, FLOOD type and CRITICAL priority.
-11. Send the packet through the verified Bluetooth A -> B -> C/Rescue path.
+Other supported classifications include:
 
-## Typed fallback test
+Emergency
 
-1. Disable internet/mobile data.
-2. Type the same sentence manually.
-3. Analyze and create the packet.
-4. Verify the result is still FLOOD + CRITICAL.
+Priority
 
-This proves classification is local and speech failure cannot block emergency reporting.
+FIRE
 
-## Additional classification tests
+URGENT
 
-| Input | Expected type | Expected priority |
-| --- | --- | --- |
-| `Smoke and fire near a house` | FIRE | URGENT |
-| `Person is unconscious and needs medical help` | MEDICAL | CRITICAL |
-| `Road blocked by landslide and debris` | BLOCKED ROAD | URGENT |
-| `Bridge collapse, people cannot escape` | DAMAGED BRIDGE | CRITICAL |
-| `Minor road issue requires inspection` with Other selected | OTHER | NORMAL |
+MEDICAL
 
-## Speech behavior
+CRITICAL
 
-- Android 12/API 31+ devices use `createOnDeviceSpeechRecognizer()` when an on-device service is available.
-- Otherwise ResQ uses the system recognizer with offline preference requested.
-- Some phones require downloading an offline language pack in Google voice typing settings.
-- If speech reports an unavailable model/service, type the emergency and continue through the identical classifier and packet pipeline.
+BLOCKED ROAD
 
-## Important source paths
+URGENT
 
-```text
-app/src/main/java/com/resq/
-  ai/classifier/EmergencyClassifier.kt
-  ai/speech/SpeechInputManager.kt
-  ui/ai/AiAnalysisScreen.kt
-  ui/report/ReportScreen.kt
-  ui/ResQViewModel.kt
+DAMAGED BRIDGE
 
-app/src/test/java/com/resq/ai/classifier/
-  EmergencyClassifierTest.kt
-```
+CRITICAL
 
-## Troubleshooting
+OTHER
 
-- **Microphone denied:** Android Settings > Apps > ResQ > Permissions > Microphone > Allow.
-- **Offline speech unavailable:** install/download the phone's offline English speech pack, or use typed text.
-- **Speech transcription is inaccurate:** edit the transcript before tapping Analyze.
-- **No GPS:** tap Get Current Location; packet creation remains disabled without a location.
-- **Analysis result differs:** check exact wording and matched-keyword line; select the intended type as manual fallback.
-- **Classifier test fails after editing rules:** restore deterministic precedence: critical phrases first, then urgent phrases, then normal.
-- **Gradle JVM error:** use JVM 21, not JVM 25.
+NORMAL
 
-## Important source paths
+Testing
 
-```text
-app/src/main/java/com/resq/
-  map/OfflineMapProjector.kt
-  ui/map/OfflineMapScreen.kt
-  data/model/SupportEntities.kt
-  data/db/SupportDao.kt
-  ui/ResQViewModel.kt
+The project includes unit tests for emergency classification and offline map coordinate projection.
 
-app/src/test/java/com/resq/map/
-  OfflineMapProjectorTest.kt
-```
+Typical Gradle commands should be verified against the project's actual configuration before being added as official commands:
 
-The map intentionally uses a schematic offline disaster layout instead of online map tiles. This guarantees the demonstration still works during a network outage.
+./gradlew test
+./gradlew lint
+
+6. Reliability, Performance & Security
+
+Offline Reliability
+
+ResQ is designed so that core emergency functions continue working without internet access:
+
+Emergency classification runs locally.
+
+Typed reporting works when speech fails.
+
+Maps can be stored locally using PMTiles.
+
+Emergency packets are stored using Room.
+
+Bluetooth supports local packet forwarding.
+
+Photo analysis uses on-device ML Kit.
+
+Known Limitations
+
+Area
+
+Limitation
+
+Offline routing
+
+PMTiles is not a road-routing graph
+
+Photo analysis
+
+ML Kit is not a specialized disaster-severity model
+
+Speech
+
+Offline speech availability depends on the device
+
+Map size
+
+PMTiles archive has a documented 1 GB application limit
+
+GPS
+
+Emergency packet creation requires a location
+
+Classification
+
+Uses deterministic local rules rather than a trained cloud model
+
+Offline Path
+
+ResQ displays the user, destination, distance, and a straight directional line. It does not provide turn-by-turn road navigation.
+
+Image Analysis
+
+ML Kit labels visible objects/scenes. ResQ creates conservative descriptions and requires the user to review or edit them before they are used. It does not automatically invent injuries, victim counts, causes, exact locations, or claims that a user is trapped.
+
+Performance
+
+The existing README does not provide measured latency, throughput, memory, battery, or benchmark results.
+
+Security Reporting
+
+A private vulnerability-reporting procedure is not documented yet and should be added before public release.
+
+7. Troubleshooting
+
+Problem
+
+Solution
+
+Microphone denied
+
+Allow Microphone permission in Android Settings
+
+Offline speech unavailable
+
+Download an offline language pack or use typed text
+
+Inaccurate speech
+
+Edit the transcript before analysis
+
+No GPS
+
+Enable GPS and use Get Current Location
+
+POIs missing
+
+Use a suitable zoom-15 PMTiles archive
+
+Gradle JVM error
+
+Use JVM 21, not JVM 25
+
+Classification differs
+
+Check wording and use the manual type fallback
+
+8. Governance & License
+
+Map Data
+
+The PMTiles basemap requires OpenStreetMap attribution and is distributed under the ODbL Produced Work terms.
+
+Project License
+
+The existing README does not specify a source-code license. Add a LICENSE file and contribution guidelines before public release.
+
+Contribution Guidelines
+
+Add project-specific rules for:
+
+Branching
+
+Pull requests
+
+Code style
+
+Testing
+
+Issue reporting
+
+External assets and datasets
+
+Repository
+
+https://github.com/Bhoomika-M-gowda/ResQ
