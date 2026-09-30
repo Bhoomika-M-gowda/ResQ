@@ -12,6 +12,7 @@ import com.resq.data.model.PacketStatus
 import com.resq.data.repository.EmergencyRepository
 import com.resq.mesh.packet.MeshAck
 import com.resq.mesh.packet.MeshProtocol
+import com.resq.mesh.packet.PacketValidator
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -210,6 +211,17 @@ class WifiDirectManager(
     }
 
     private suspend fun sendToHost(host: String, peer: WifiPeer, packet: EmergencyPacket) {
+        if (packet.status == com.resq.data.model.PacketStatus.DELIVERED ||
+            packet.status == com.resq.data.model.PacketStatus.CLOSED ||
+            packet.status == com.resq.data.model.PacketStatus.EXPIRED) {
+            activeTransferDeferred?.complete(Result.failure(IllegalStateException("Packet ${packet.messageId} is already ${packet.status.name}")))
+            return
+        }
+        if (packet.hopCount >= PacketValidator.MAX_HOPS && !isRescueMode()) {
+            emergencyRepository.markExpired(packet.messageId, packet.hopCount)
+            activeTransferDeferred?.complete(Result.failure(IllegalStateException("Packet ${packet.messageId} expired (hop count ${packet.hopCount} >= MAX_HOPS ${PacketValidator.MAX_HOPS})")))
+            return
+        }
         val now = System.currentTimeMillis()
         val outbound = packet.copy(hopCount = packet.hopCount + 1, status = PacketStatus.FORWARDED, lastForwardedAt = now)
         val result = runCatching {
@@ -228,6 +240,9 @@ class WifiDirectManager(
         result.fold(
             onSuccess = { ack ->
                 emergencyRepository.markTransferred(packet.messageId, outbound.hopCount, ack.finalDelivery)
+                if (ack.finalDelivery) {
+                    emergencyRepository.markClosed(packet.messageId)
+                }
                 supportDao.insertForwardingLog(ForwardingLog(messageId = packet.messageId, fromDevice = localDeviceId, toDevice = ack.receiverId, method = "WIFI_LOCAL", timestamp = now, result = if (ack.finalDelivery) "ACK_DELIVERED" else "ACK_FORWARDED"))
                 _state.value = _state.value.copy(status = if (ack.finalDelivery) "${packet.messageId} delivered to Rescue by Wi-Fi" else "${packet.messageId} acknowledged by ${peer.name}", error = null)
                 activeTransferDeferred?.complete(Result.success(true))
@@ -242,6 +257,12 @@ class WifiDirectManager(
 
     @SuppressLint("MissingPermission")
     fun broadcastPacket(packet: EmergencyPacket) {
+        if (packet.status == com.resq.data.model.PacketStatus.DELIVERED ||
+            packet.status == com.resq.data.model.PacketStatus.CLOSED ||
+            packet.status == com.resq.data.model.PacketStatus.EXPIRED ||
+            packet.hopCount >= PacketValidator.MAX_HOPS) {
+            return
+        }
         discoverPeers()
         val currentPeers = _state.value.peers
         if (currentPeers.isNotEmpty()) {
@@ -261,7 +282,25 @@ class WifiDirectManager(
             val message = MeshProtocol.decodePacket(line).getOrElse {
                 sendAck(connected, MeshAck("UNKNOWN", false, false, localDeviceId, "Malformed mesh packet")); return
             }
+            val packet = message.packet
+
+            // ORDER OF CHECKS:
+            // 1. Validate packet
+            if (PacketValidator.validate(packet).isFailure) {
+                sendAck(connected, MeshAck(packet.messageId, false, false, localDeviceId, "Invalid packet payload"))
+                return
+            }
+
+            // 2. Check whether packet is already DELIVERED, CLOSED, or EXPIRED
+            if (packet.status == com.resq.data.model.PacketStatus.DELIVERED ||
+                packet.status == com.resq.data.model.PacketStatus.CLOSED ||
+                packet.status == com.resq.data.model.PacketStatus.EXPIRED) {
+                sendAck(connected, MeshAck(packet.messageId, false, packet.status == com.resq.data.model.PacketStatus.DELIVERED, localDeviceId, "Packet is already ${packet.status.name}"))
+                return
+            }
+
             val finalDelivery = isRescueMode()
+
             if (message.packet.priority == com.resq.data.model.EmergencyPriority.CRITICAL || message.packet.type == com.resq.data.model.EmergencyType.SOS) {
                 com.resq.util.SosNotificationManager.showSosReceivedNotification(
                     appContext,
@@ -271,14 +310,48 @@ class WifiDirectManager(
                     message.packet.longitude
                 )
             }
-            emergencyRepository.receivePacket(message.packet, finalDelivery).fold(
+
+            // 3. Destination check: Check whether this device is the intended Rescue Node
+            if (finalDelivery) {
+                emergencyRepository.receivePacket(packet, finalDelivery = true).fold(
+                    onSuccess = { stored ->
+                        emergencyRepository.markClosed(stored.messageId)
+                        sendAck(connected, MeshAck(stored.messageId, true, true, localDeviceId))
+                        supportDao.insertForwardingLog(ForwardingLog(messageId = stored.messageId, fromDevice = message.forwarderId, toDevice = localDeviceId, method = "WIFI_LOCAL", timestamp = System.currentTimeMillis(), result = "RESCUE_RECEIVED"))
+                        _state.value = _state.value.copy(status = "Rescue received ${stored.messageId} by Wi-Fi (Delivered/Closed)", receivedPacketId = stored.messageId, error = null)
+                    },
+                    onFailure = { error ->
+                        sendAck(connected, MeshAck(packet.messageId, false, true, localDeviceId, error.message))
+                        _state.value = _state.value.copy(error = error.message ?: "Incoming packet rejected")
+                    }
+                )
+                return
+            }
+
+            // 4. If this device is NOT the destination, check hop limit
+            if (packet.hopCount >= PacketValidator.MAX_HOPS) {
+                emergencyRepository.receiveExpiredPacket(packet).fold(
+                    onSuccess = { expired ->
+                        sendAck(connected, MeshAck(expired.messageId, false, false, localDeviceId, "HOP_LIMIT_EXCEEDED"))
+                        supportDao.insertForwardingLog(ForwardingLog(messageId = expired.messageId, fromDevice = message.forwarderId, toDevice = localDeviceId, method = "WIFI_LOCAL", timestamp = System.currentTimeMillis(), result = "EXPIRED_HOP_LIMIT"))
+                        _state.value = _state.value.copy(status = "Packet ${expired.messageId} expired (Hop limit ${expired.hopCount}/${PacketValidator.MAX_HOPS} exceeded)", receivedPacketId = expired.messageId, error = null)
+                    },
+                    onFailure = { error ->
+                        sendAck(connected, MeshAck(packet.messageId, false, false, localDeviceId, "HOP_LIMIT_EXCEEDED"))
+                    }
+                )
+                return
+            }
+
+            // 5. Otherwise: continue using existing store-and-forward logic
+            emergencyRepository.receivePacket(packet, finalDelivery = false).fold(
                 onSuccess = { stored ->
-                    sendAck(connected, MeshAck(stored.messageId, true, finalDelivery, localDeviceId))
-                    supportDao.insertForwardingLog(ForwardingLog(messageId = stored.messageId, fromDevice = message.forwarderId, toDevice = localDeviceId, method = "WIFI_LOCAL", timestamp = System.currentTimeMillis(), result = if (finalDelivery) "RESCUE_RECEIVED" else "RECEIVED"))
-                    _state.value = _state.value.copy(status = if (finalDelivery) "Rescue received ${stored.messageId} by Wi-Fi" else "Received ${stored.messageId} by Wi-Fi", receivedPacketId = stored.messageId, error = null)
+                    sendAck(connected, MeshAck(stored.messageId, true, false, localDeviceId))
+                    supportDao.insertForwardingLog(ForwardingLog(messageId = stored.messageId, fromDevice = message.forwarderId, toDevice = localDeviceId, method = "WIFI_LOCAL", timestamp = System.currentTimeMillis(), result = "RECEIVED"))
+                    _state.value = _state.value.copy(status = "Received ${stored.messageId} by Wi-Fi", receivedPacketId = stored.messageId, error = null)
                 },
                 onFailure = { error ->
-                    sendAck(connected, MeshAck(message.packet.messageId, false, finalDelivery, localDeviceId, error.message))
+                    sendAck(connected, MeshAck(message.packet.messageId, false, false, localDeviceId, error.message))
                     _state.value = _state.value.copy(error = error.message ?: "Incoming packet rejected")
                 }
             )

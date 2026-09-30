@@ -24,4 +24,7 @@ interface EmergencyPacketDao {
 
     @Query("UPDATE emergency_packets SET status = :status, hopCount = :hopCount, lastForwardedAt = :time WHERE messageId = :id")
     suspend fun updateTransferStatus(id: String, status: PacketStatus, hopCount: Int, time: Long)
+
+    @Query("UPDATE emergency_packets SET status = :status WHERE messageId = :id")
+    suspend fun updateStatus(id: String, status: PacketStatus)
 }

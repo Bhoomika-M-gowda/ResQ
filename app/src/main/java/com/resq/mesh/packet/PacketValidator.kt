@@ -4,6 +4,7 @@ import com.resq.data.model.EmergencyPacket
 
 object PacketValidator {
     const val MAX_TEXT_LENGTH = 200
+    const val MAX_HOPS = 5
 
     fun validate(packet: EmergencyPacket): Result<EmergencyPacket> {
         val error = when {

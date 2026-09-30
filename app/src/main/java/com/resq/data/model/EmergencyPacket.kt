@@ -5,7 +5,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 enum class EmergencyPriority { CRITICAL, URGENT, NORMAL }
-enum class PacketStatus { CREATED, STORED, FORWARDED, DELIVERED, FAILED }
+enum class PacketStatus { CREATED, STORED, FORWARDED, DELIVERED, FAILED, EXPIRED, CLOSED }
 
 @Entity(tableName = "emergency_packets")
 data class EmergencyPacket(
@@ -20,5 +20,6 @@ data class EmergencyPacket(
     val status: PacketStatus,
     val hopCount: Int,
     val lastForwardedAt: Long?,
-    val imageLocalPath: String? = null
+    val imageLocalPath: String? = null,
+    val destinationId: String = "RESCUE"
 )

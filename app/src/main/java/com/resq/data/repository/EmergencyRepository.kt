@@ -16,7 +16,8 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
         text: String,
         priority: EmergencyPriority,
         location: LocationFix,
-        imageLocalPath: String? = null
+        imageLocalPath: String? = null,
+        destinationId: String = "RESCUE"
     ): Result<EmergencyPacket> {
         val now = System.currentTimeMillis()
         val packet = EmergencyPacket(
@@ -31,7 +32,8 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
             status = PacketStatus.STORED,
             hopCount = 0,
             lastForwardedAt = null,
-            imageLocalPath = imageLocalPath
+            imageLocalPath = imageLocalPath,
+            destinationId = destinationId
         )
         return PacketValidator.validate(packet).fold(
             onSuccess = {
@@ -47,11 +49,37 @@ class EmergencyRepository(private val dao: EmergencyPacketDao) {
         val received = packet.copy(status = if (finalDelivery) PacketStatus.DELIVERED else PacketStatus.STORED)
         return PacketValidator.validate(received).fold(
             onSuccess = {
-                if (dao.insert(it) == -1L) Result.failure(IllegalStateException("Duplicate message ID rejected"))
-                else Result.success(it)
+                val inserted = dao.insert(it)
+                if (inserted == -1L) {
+                    // Update status if packet already exists
+                    dao.updateTransferStatus(it.messageId, it.status, it.hopCount, System.currentTimeMillis())
+                }
+                Result.success(it)
             },
             onFailure = { Result.failure(it) }
         )
+    }
+
+    suspend fun receiveExpiredPacket(packet: EmergencyPacket): Result<EmergencyPacket> {
+        val expired = packet.copy(status = PacketStatus.EXPIRED)
+        return PacketValidator.validate(expired).fold(
+            onSuccess = {
+                val inserted = dao.insert(it)
+                if (inserted == -1L) {
+                    dao.updateTransferStatus(it.messageId, PacketStatus.EXPIRED, it.hopCount, System.currentTimeMillis())
+                }
+                Result.success(it)
+            },
+            onFailure = { Result.failure(it) }
+        )
+    }
+
+    suspend fun markClosed(messageId: String) {
+        dao.updateStatus(messageId, PacketStatus.CLOSED)
+    }
+
+    suspend fun markExpired(messageId: String, hopCount: Int) {
+        dao.updateTransferStatus(messageId, PacketStatus.EXPIRED, hopCount, System.currentTimeMillis())
     }
 
     suspend fun markTransferred(messageId: String, hopCount: Int, delivered: Boolean) {

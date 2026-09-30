@@ -13,6 +13,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.resq.data.model.EmergencyPacket
 import com.resq.data.model.ForwardingLog
+import com.resq.data.model.PacketStatus
+import com.resq.mesh.packet.PacketValidator
 import com.resq.ui.components.ResQCard
 import com.resq.ui.components.ResQHeader
 import com.resq.ui.theme.CriticalRed
@@ -58,7 +60,25 @@ fun PacketHistoryScreen(packets: List<EmergencyPacket>, logs: List<ForwardingLog
                         Spacer(Modifier.height(8.dp))
                         Text("${"%.5f".format(packet.latitude)}, ${"%.5f".format(packet.longitude)}", style = MaterialTheme.typography.bodySmall)
                         Text(DateFormat.getDateTimeInstance().format(Date(packet.timestamp)), style = MaterialTheme.typography.bodySmall)
-                        Text("${packet.status.name} • Hop ${packet.hopCount}", style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.height(6.dp))
+                        when (packet.status) {
+                            PacketStatus.DELIVERED, PacketStatus.CLOSED -> {
+                                Column {
+                                    Text("✓ Reached Rescue Node • Delivered • ACK Sent • Closed", color = SafeGreen, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                    Text("Status: ${packet.status.name} • Hop ${packet.hopCount}", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                            PacketStatus.EXPIRED -> {
+                                Column {
+                                    Text("⚠ Hop Limit Exceeded (${packet.hopCount}/${PacketValidator.MAX_HOPS})", color = UrgentOrange, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                                    Text("🔴 EXPIRED — HOP LIMIT EXCEEDED", color = CriticalRed, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodySmall)
+                                    Text("Status: EXPIRED • Hop ${packet.hopCount}", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                            else -> {
+                                Text("Status: ${packet.status.name} • Hop ${packet.hopCount}/${PacketValidator.MAX_HOPS}", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
                     }
                 }
                 if (logs.isNotEmpty()) {

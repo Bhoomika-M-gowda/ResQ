@@ -7,9 +7,9 @@ import com.resq.data.model.PacketStatus
 
 class Converters {
     @TypeConverter fun priorityToString(value: EmergencyPriority) = value.name
-    @TypeConverter fun stringToPriority(value: String) = EmergencyPriority.valueOf(value)
+    @TypeConverter fun stringToPriority(value: String) = runCatching { EmergencyPriority.valueOf(value) }.getOrDefault(EmergencyPriority.NORMAL)
     @TypeConverter fun typeToString(value: EmergencyType) = value.name
-    @TypeConverter fun stringToType(value: String) = EmergencyType.valueOf(value)
+    @TypeConverter fun stringToType(value: String) = runCatching { EmergencyType.valueOf(value) }.getOrDefault(EmergencyType.SOS)
     @TypeConverter fun statusToString(value: PacketStatus) = value.name
-    @TypeConverter fun stringToStatus(value: String) = PacketStatus.valueOf(value)
+    @TypeConverter fun stringToStatus(value: String) = runCatching { PacketStatus.valueOf(value) }.getOrDefault(PacketStatus.STORED)
 }

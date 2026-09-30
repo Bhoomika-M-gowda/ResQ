@@ -20,6 +20,7 @@ object PacketJsonCodec {
         put("hopCount", packet.hopCount)
         if (packet.lastForwardedAt == null) put("lastForwardedAt", JSONObject.NULL)
         else put("lastForwardedAt", packet.lastForwardedAt)
+        put("destinationId", packet.destinationId)
     }.toString()
 
     fun decode(json: String): Result<EmergencyPacket> = runCatching {
@@ -33,9 +34,10 @@ object PacketJsonCodec {
             longitude = value.getDouble("longitude"),
             timestamp = value.getLong("timestamp"),
             senderId = value.getString("senderId"),
-            status = PacketStatus.valueOf(value.getString("status")),
+            status = runCatching { PacketStatus.valueOf(value.getString("status")) }.getOrDefault(PacketStatus.STORED),
             hopCount = value.getInt("hopCount"),
-            lastForwardedAt = if (value.isNull("lastForwardedAt")) null else value.getLong("lastForwardedAt")
+            lastForwardedAt = if (value.isNull("lastForwardedAt")) null else value.getLong("lastForwardedAt"),
+            destinationId = if (value.has("destinationId") && !value.isNull("destinationId")) value.getString("destinationId") else "RESCUE"
         )
     }.fold(
         onSuccess = { PacketValidator.validate(it) },

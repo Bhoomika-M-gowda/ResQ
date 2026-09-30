@@ -11,6 +11,7 @@ import com.resq.data.model.ForwardingLog
 import com.resq.data.repository.EmergencyRepository
 import com.resq.mesh.packet.MeshAck
 import com.resq.mesh.packet.MeshProtocol
+import com.resq.mesh.packet.PacketValidator
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -127,8 +128,18 @@ class BluetoothMeshManager(
     }
 
     @SuppressLint("MissingPermission")
+
     suspend fun sendPacketToPeer(packet: EmergencyPacket, peer: PeerDevice): Result<MeshAck> = withContext(Dispatchers.IO) {
         val bluetooth = adapter ?: return@withContext Result.failure(IllegalStateException("Bluetooth not available"))
+        if (packet.status == com.resq.data.model.PacketStatus.DELIVERED ||
+            packet.status == com.resq.data.model.PacketStatus.CLOSED ||
+            packet.status == com.resq.data.model.PacketStatus.EXPIRED) {
+            return@withContext Result.failure(IllegalStateException("Packet ${packet.messageId} is already ${packet.status.name}"))
+        }
+        if (packet.hopCount >= PacketValidator.MAX_HOPS && !isRescueMode()) {
+            emergencyRepository.markExpired(packet.messageId, packet.hopCount)
+            return@withContext Result.failure(IllegalStateException("Packet ${packet.messageId} expired (hop count ${packet.hopCount} >= MAX_HOPS ${PacketValidator.MAX_HOPS})"))
+        }
         _state.value = _state.value.copy(status = "Sending ${packet.messageId} to ${peer.name}…", error = null)
         runCatching { bluetooth.cancelDiscovery() }
         val now = System.currentTimeMillis()
@@ -164,6 +175,9 @@ class BluetoothMeshManager(
         result.fold(
             onSuccess = { ack ->
                 emergencyRepository.markTransferred(packet.messageId, outbound.hopCount, ack.finalDelivery)
+                if (ack.finalDelivery) {
+                    emergencyRepository.markClosed(packet.messageId)
+                }
                 supportDao.insertForwardingLog(
                     ForwardingLog(
                         messageId = packet.messageId,
@@ -197,6 +211,12 @@ class BluetoothMeshManager(
 
     @SuppressLint("MissingPermission")
     fun broadcastPacket(packet: EmergencyPacket) {
+        if (packet.status == com.resq.data.model.PacketStatus.DELIVERED ||
+            packet.status == com.resq.data.model.PacketStatus.CLOSED ||
+            packet.status == com.resq.data.model.PacketStatus.EXPIRED ||
+            packet.hopCount >= PacketValidator.MAX_HOPS) {
+            return
+        }
         startDiscovery()
         val currentPeers = _state.value.peers
         if (currentPeers.isNotEmpty()) {
@@ -227,7 +247,24 @@ class BluetoothMeshManager(
             }
             val meshMessage = decoded.getOrThrow()
             val packet = meshMessage.packet
+
+            // ORDER OF CHECKS:
+            // 1. Validate packet
+            if (PacketValidator.validate(packet).isFailure) {
+                sendAck(connected, MeshAck(packet.messageId, false, false, localDeviceId, "Invalid packet payload"))
+                return
+            }
+
+            // 2. Check whether packet is already DELIVERED, CLOSED, or EXPIRED
+            if (packet.status == com.resq.data.model.PacketStatus.DELIVERED ||
+                packet.status == com.resq.data.model.PacketStatus.CLOSED ||
+                packet.status == com.resq.data.model.PacketStatus.EXPIRED) {
+                sendAck(connected, MeshAck(packet.messageId, false, packet.status == com.resq.data.model.PacketStatus.DELIVERED, localDeviceId, "Packet is already ${packet.status.name}"))
+                return
+            }
+
             val finalDelivery = isRescueMode()
+
             if (packet.priority == com.resq.data.model.EmergencyPriority.CRITICAL || packet.type == com.resq.data.model.EmergencyType.SOS) {
                 com.resq.util.SosNotificationManager.showSosReceivedNotification(
                     appContext,
@@ -237,9 +274,69 @@ class BluetoothMeshManager(
                     packet.longitude
                 )
             }
-            emergencyRepository.receivePacket(packet, finalDelivery).fold(
+
+            // 3. Destination check: Check whether this device is the intended Rescue Node
+            if (finalDelivery) {
+                emergencyRepository.receivePacket(packet, finalDelivery = true).fold(
+                    onSuccess = { stored ->
+                        emergencyRepository.markClosed(stored.messageId)
+                        sendAck(connected, MeshAck(stored.messageId, true, true, localDeviceId))
+                        supportDao.insertForwardingLog(
+                            ForwardingLog(
+                                messageId = stored.messageId,
+                                fromDevice = meshMessage.forwarderId,
+                                toDevice = localDeviceId,
+                                method = "BLUETOOTH",
+                                timestamp = System.currentTimeMillis(),
+                                result = "RESCUE_RECEIVED"
+                            )
+                        )
+                        _state.value = _state.value.copy(
+                            status = "Rescue received ${stored.messageId} (Delivered/Closed)",
+                            receivedPacketId = stored.messageId,
+                            error = null
+                        )
+                    },
+                    onFailure = { error ->
+                        sendAck(connected, MeshAck(packet.messageId, false, true, localDeviceId, error.message))
+                        _state.value = _state.value.copy(error = error.message ?: "Incoming packet rejected", status = "Packet not stored")
+                    }
+                )
+                return
+            }
+
+            // 4. If this device is NOT the destination, check hop limit
+            if (packet.hopCount >= PacketValidator.MAX_HOPS) {
+                emergencyRepository.receiveExpiredPacket(packet).fold(
+                    onSuccess = { expired ->
+                        sendAck(connected, MeshAck(expired.messageId, false, false, localDeviceId, "HOP_LIMIT_EXCEEDED"))
+                        supportDao.insertForwardingLog(
+                            ForwardingLog(
+                                messageId = expired.messageId,
+                                fromDevice = meshMessage.forwarderId,
+                                toDevice = localDeviceId,
+                                method = "BLUETOOTH",
+                                timestamp = System.currentTimeMillis(),
+                                result = "EXPIRED_HOP_LIMIT"
+                            )
+                        )
+                        _state.value = _state.value.copy(
+                            status = "Packet ${expired.messageId} expired (Hop limit ${expired.hopCount}/${PacketValidator.MAX_HOPS} exceeded)",
+                            receivedPacketId = expired.messageId,
+                            error = null
+                        )
+                    },
+                    onFailure = { error ->
+                        sendAck(connected, MeshAck(packet.messageId, false, false, localDeviceId, "HOP_LIMIT_EXCEEDED"))
+                    }
+                )
+                return
+            }
+
+            // 5. Otherwise: continue using existing store-and-forward logic
+            emergencyRepository.receivePacket(packet, finalDelivery = false).fold(
                 onSuccess = { stored ->
-                    sendAck(connected, MeshAck(stored.messageId, true, finalDelivery, localDeviceId))
+                    sendAck(connected, MeshAck(stored.messageId, true, false, localDeviceId))
                     supportDao.insertForwardingLog(
                         ForwardingLog(
                             messageId = stored.messageId,
@@ -247,17 +344,17 @@ class BluetoothMeshManager(
                             toDevice = localDeviceId,
                             method = "BLUETOOTH",
                             timestamp = System.currentTimeMillis(),
-                            result = if (finalDelivery) "RESCUE_RECEIVED" else "RECEIVED"
+                            result = "RECEIVED"
                         )
                     )
                     _state.value = _state.value.copy(
-                        status = if (finalDelivery) "Rescue received ${stored.messageId}" else "Received ${stored.messageId} from $remote",
+                        status = "Received ${stored.messageId} from $remote",
                         receivedPacketId = stored.messageId,
                         error = null
                     )
                 },
                 onFailure = { error ->
-                    sendAck(connected, MeshAck(packet.messageId, false, finalDelivery, localDeviceId, error.message))
+                    sendAck(connected, MeshAck(packet.messageId, false, false, localDeviceId, error.message))
                     _state.value = _state.value.copy(error = error.message ?: "Incoming packet rejected", status = "Packet not stored")
                 }
             )
