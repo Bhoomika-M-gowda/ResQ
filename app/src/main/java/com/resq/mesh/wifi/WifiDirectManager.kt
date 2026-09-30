@@ -197,6 +197,17 @@ class WifiDirectManager(
         )
     }
 
+    @SuppressLint("MissingPermission")
+    fun broadcastPacket(packet: EmergencyPacket) {
+        discoverPeers()
+        val currentPeers = _state.value.peers
+        if (currentPeers.isNotEmpty()) {
+            currentPeers.forEach { peer ->
+                connectAndSend(peer, packet)
+            }
+        }
+    }
+
     private suspend fun receive(socket: Socket) {
         socket.use { connected ->
             connected.soTimeout = ACK_TIMEOUT_MS
@@ -208,6 +219,15 @@ class WifiDirectManager(
                 sendAck(connected, MeshAck("UNKNOWN", false, false, localDeviceId, "Malformed mesh packet")); return
             }
             val finalDelivery = isRescueMode()
+            if (message.packet.priority == com.resq.data.model.EmergencyPriority.CRITICAL || message.packet.type == com.resq.data.model.EmergencyType.SOS) {
+                com.resq.util.SosNotificationManager.showSosReceivedNotification(
+                    appContext,
+                    message.forwarderId,
+                    message.packet.text,
+                    message.packet.latitude,
+                    message.packet.longitude
+                )
+            }
             emergencyRepository.receivePacket(message.packet, finalDelivery).fold(
                 onSuccess = { stored ->
                     sendAck(connected, MeshAck(stored.messageId, true, finalDelivery, localDeviceId))

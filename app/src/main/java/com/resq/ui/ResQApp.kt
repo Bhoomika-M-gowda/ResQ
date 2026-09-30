@@ -104,13 +104,18 @@ fun ResQApp() {
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }
     }
-    val bluetoothPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.BLUETOOTH_ADVERTISE
-        )
-    } else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    val bluetoothPermissions = buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(Manifest.permission.BLUETOOTH_SCAN)
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+            add(Manifest.permission.BLUETOOTH_ADVERTISE)
+        } else {
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }.toTypedArray()
     val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -230,7 +235,7 @@ fun ResQApp() {
                         onRescue = { navController.navigate(Routes.RESCUE) },
                         onWifi = { navController.navigate(Routes.WIFI) },
                         onDecision = { navController.navigate(Routes.DECISION) },
-                        onSos = { navController.navigate(Routes.SOS) },
+                        onSos = { viewModel.triggerDirectSos() },
                         onReport = { navController.navigate(Routes.REPORT) },
                         onMap = { navController.navigate(Routes.MAP) }
                     )
@@ -274,7 +279,7 @@ fun ResQApp() {
                         onGetLocation = getLocation,
                         onBack = { navController.popBackStack() },
                         onConfirmed = {
-                            viewModel.createSos()
+                            viewModel.triggerDirectSos()
                             navController.popBackStack()
                         }
                     )

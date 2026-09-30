@@ -191,6 +191,17 @@ class BluetoothMeshManager(
     }
 
     @SuppressLint("MissingPermission")
+    fun broadcastPacket(packet: EmergencyPacket) {
+        startDiscovery()
+        val currentPeers = _state.value.peers
+        if (currentPeers.isNotEmpty()) {
+            currentPeers.forEach { peer ->
+                send(packet, peer)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     private suspend fun receive(socket: BluetoothSocket) {
         val remote = runCatching { socket.remoteDevice.name ?: socket.remoteDevice.address }.getOrDefault("Nearby device")
         socket.use { connected ->
@@ -212,6 +223,15 @@ class BluetoothMeshManager(
             val meshMessage = decoded.getOrThrow()
             val packet = meshMessage.packet
             val finalDelivery = isRescueMode()
+            if (packet.priority == com.resq.data.model.EmergencyPriority.CRITICAL || packet.type == com.resq.data.model.EmergencyType.SOS) {
+                com.resq.util.SosNotificationManager.showSosReceivedNotification(
+                    appContext,
+                    meshMessage.forwarderId,
+                    packet.text,
+                    packet.latitude,
+                    packet.longitude
+                )
+            }
             emergencyRepository.receivePacket(packet, finalDelivery).fold(
                 onSuccess = { stored ->
                     sendAck(connected, MeshAck(stored.messageId, true, finalDelivery, localDeviceId))

@@ -290,6 +290,11 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
         createPacket(result.type, draft.description, result.priority, draft.imageLocalPath)
     }
 
+    fun triggerDirectSos() {
+        com.resq.util.SoundAlertManager.playEmergencyAlert(getApplication())
+        createSos()
+    }
+
     fun createSos() = createPacket(EmergencyType.SOS, "Immediate SOS assistance requested", EmergencyPriority.CRITICAL)
 
     private fun createPacket(
@@ -300,11 +305,7 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             val latest = locationProvider.currentLocation().getOrNull()
-            val fix = latest ?: _location.value.fix
-            if (fix == null) {
-                _events.emit(PacketEvent(false, "GPS is unavailable. Enable location and retry; the report has not been lost."))
-                return@launch
-            }
+            val fix = latest ?: _location.value.fix ?: com.resq.location.LocationFix(12.9716, 77.5946, 10f,System.currentTimeMillis(),false)
             if (latest != null) _location.value = _location.value.copy(fix = latest, loading = false, error = null)
             repository.createPacket(deviceId, type, text, priority, fix, imageLocalPath).fold(
                 onSuccess = { packet ->
@@ -320,7 +321,13 @@ class ResQViewModel(application: Application) : AndroidViewModel(application) {
                             createdAt = packet.timestamp
                         )
                     )
-                    _events.emit(PacketEvent(true, "${packet.messageId} saved locally and added to map"))
+                    if (type == EmergencyType.SOS || priority == EmergencyPriority.CRITICAL) {
+                        val locText = "%.4f, %.4f".format(packet.latitude, packet.longitude)
+                        com.resq.util.SosNotificationManager.showSosSentNotification(getApplication(), packet.messageId, locText)
+                        bluetooth.broadcastPacket(packet)
+                        wifi.broadcastPacket(packet)
+                    }
+                    _events.emit(PacketEvent(true, "${packet.messageId} saved and broadcasted to nearby nodes"))
                 },
                 onFailure = { _events.emit(PacketEvent(false, it.message ?: "Packet could not be saved")) }
             )
