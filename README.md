@@ -50,6 +50,9 @@ User review before photo-generated descriptions are used
 
 Offline emergency classification without cloud AI
 
+- SOS notifications with emergency location information
+- Audible SOS siren alert when the SOS button is pressed
+
 2. Badges & Demo
 
 CI, test-coverage, and code-quality badges can be added after the corresponding workflows are configured.
@@ -69,6 +72,10 @@ Nearby rescue services
 Emergency photo analysis
 
 Emergency packet forwarding
+
+- Instant SOS notification with the sender's emergency location
+- Continuous notification alerts when an SOS notification is received
+- Audible siren sound triggered when the SOS button is pressed
 
 3. Architecture & System Design
 
@@ -91,10 +98,12 @@ Type + Priority         │                │
 ▼
 Emergency Packet
 │
+SOS detection
 ┌──────┴──────┐
 ▼             ▼
-Bluetooth      Rescue Mode
-Forwarding
+Bluetooth      Rescue mode
+Forwarding     Siren Alert on SOS
+SOS notification+Location
 
 Emergency Flow
 
@@ -151,6 +160,9 @@ Voice input
 Bluetooth
 
 Emergency packet forwarding
+
+For SOS events, the emergency packet triggers an SOS notification containing the sender's location.
+The receiving device provides a continuous alert notification and an audible siren to draw attention to the emergency.
 
 4. Installation & Configuration
 
@@ -329,6 +341,8 @@ Security Reporting
 
 A private vulnerability-reporting procedure is not documented yet and should be added before public release.
 
+- SOS notifications and siren alerts provide immediate local awareness of received emergencies.
+
 7. Troubleshooting
 
 Problem
@@ -362,6 +376,13 @@ Use JVM 21, not JVM 25
 Classification differs
 
 Check wording and use the manual type fallback
+
+| Problem                       | Solution                                                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| SOS notification not received | Check notification permission and ensure the receiving device is connected to the emergency communication path |
+| SOS alert not sounding        | Check notification/sound permissions and device volume settings                                                |
+| SOS location not shown        | Ensure location permission is enabled and a valid GPS location is available                                    |
+
 
 8. Governance & License
 
