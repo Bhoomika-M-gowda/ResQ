@@ -1,0 +1,59 @@
+RESQ ANDROID 0.8.0 - START HERE
+================================
+
+IMPORTANT
+---------
+This ZIP is the Android Studio source project. Do not try to install or open
+the ZIP directly on the phone.
+
+OPEN THE PROJECT ON WINDOWS
+---------------------------
+1. Right-click the downloaded ZIP and select Extract All.
+2. Open Android Studio.
+3. Select File > Open.
+4. Select the extracted inner folder named resq-android.
+5. Confirm that the selected folder contains:
+     app
+     gradle
+     build.gradle.kts
+     settings.gradle.kts
+6. If Android Studio asks for a Gradle JVM, choose JVM 21.
+7. Wait for Gradle synchronization to finish.
+
+INSTALL ON A PHONE FROM ANDROID STUDIO
+--------------------------------------
+1. On the phone, enable Developer options and USB debugging.
+2. Connect the phone to the computer with a USB cable.
+3. Choose File transfer on the phone.
+4. Accept the Allow USB debugging prompt.
+5. Select the phone from Android Studio's device list.
+6. Select the app run configuration.
+7. Click the green Run button.
+
+Do not uninstall an older ResQ version first. Installing this build with the
+same Android Studio debug key updates the app and preserves stored data and the
+previously imported map.
+
+IMPORT THE KARNATAKA OFFLINE MAP
+--------------------------------
+1. Keep karnataka.pmtiles outside this project ZIP.
+2. The map file must be no larger than 1 GB.
+3. Connect the phone to Windows and choose File transfer.
+4. Copy karnataka.pmtiles to:
+     This PC > your phone > Internal shared storage > Download
+5. Open ResQ on the phone.
+6. Open Map and tap Import Karnataka Map.
+7. Select Download > karnataka.pmtiles.
+8. Wait for the import to reach 100 percent.
+9. Turn off mobile data and Wi-Fi and reopen Map to verify offline operation.
+
+IF WINDOWS CANNOT EXTRACT THE ZIP
+---------------------------------
+1. Delete the incomplete download.
+2. Download the FIXED ZIP again.
+3. Wait until the browser reports that the download is complete.
+4. Move the ZIP to Downloads before selecting Extract All.
+5. If Windows still fails, right-click it and use 7-Zip > Extract to folder.
+
+The Karnataka PMTiles archive is intentionally not included because it is a
+large local data file and can exceed normal project and Git hosting limits.

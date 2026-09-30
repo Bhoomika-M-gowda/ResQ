@@ -81,7 +81,7 @@ class SpeechInputManager(private val context: Context) {
         SpeechRecognizer.ERROR_NO_MATCH -> "Speech was not understood. Try again or type the emergency."
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy. Try again."
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected. Try again or type the emergency."
-        else -> "Speech recognition unavailable. Type the emergency instead."
+        else -> "Speech recognition unavailable please try another way. Type the emergency instead."
     }
 
     fun close() = stop()
